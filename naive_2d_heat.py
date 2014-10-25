@@ -35,7 +35,7 @@ class Grid(object):
         self.K = k
         self.QDOT = q_dot
         
-        self.mat_id = [(x,y) for x in range(self.N) for y in range(self.M)]
+        self.mat_id = [(x,y) for x in range(self.M) for y in range(self.N)]
         self.flat_id = range(len(self.mat_id))
         self.matToflat = dict(zip(self.mat_id,self.flat_id))
         self.matToflat[(-1,-1)] = -1
@@ -44,13 +44,12 @@ class Grid(object):
         self.mesh = [Node(x,y,(0,(0,None),0),*self.args) for x,y in self.mat_id]
         self.temperature = np.zeros((self.M,self.N))
         for r in self.wall_iter():
-            #print r,self.mat_id[r],self.mesh[r].X,self.mesh[r].Y
-            self.mesh[r].set_bc(self.wall_cond(self.mat_id[r],(2,5000)))
+            self.mesh[r].set_bc(self.wall_cond(self.mat_id[r],(2,0)))
         
     def __str__(self):
         s = ''
-        for x in range(self.M):
-            s = s + ' | '.join(['%3.f'%ss for ss in self.temperature[x,:]]) + '\n'
+        for y in range(self.N):
+            s = s + ' | '.join(['%3.f'%ss for ss in self.temperature[y,:]]) + '\n'
         return s
 
     def validate_bounds(self):
@@ -67,7 +66,9 @@ class Grid(object):
                 coeff[r,:] = temp
                 answer[r] = self.mesh[r].coeff[-1][1]
             self.temperature = np.linalg.solve(coeff,answer)
+            #print self.temperature
             self.temperature.shape = (self.M,self.N)
+            self.temperature = np.rot90(self.temperature)
             
             return True
         else:
@@ -75,7 +76,7 @@ class Grid(object):
             return False
 
     def show_temp(self):
-        plt.imshow(self.temperature, interpolation='bilinear',cmap=plt.get_cmap("coolwarm"))
+        plt.imshow(self.temperature,interpolation='bilinear', cmap=plt.get_cmap("coolwarm"))
         plt.colorbar()
         plt.show()
         
@@ -224,51 +225,34 @@ class Node(Grid):
         self.update_bc()
         
 if __name__ == '__main__':
-    g = Grid((1,1),(50,50),5,100)
+
+    #Initial test
+##    g = Grid((50,50),(50,50),20,100)
+##    g.init_mesh()
+##    
+##    for m in range(g.M):
+##        g.mesh[m].set_bc((1,(1,300),0))
+##        g.mesh[len(g.flat_id) - m - 1].set_bc((1,(1,700),1))
+##    g.mesh[g.M-1].set_bc((3,(1,300),0))
+##    g.mesh[0].set_bc((3,(1,300),1))
+##    g.mesh[len(g.flat_id)-g.M].set_bc((3,(1,700),3))
+##    g.mesh[len(g.flat_id)-1].set_bc((3,(1,700),4))
+##    
+##    g.evaluate()
+##    g.show_temp()
+
+    g = Grid((0.2,0.001),(50,50),4,1000)
     g.init_mesh()
     
-    
-    
-    for m in range(g.M):
-        g.mesh[m].set_bc((1,(1,300),1))
-        g.mesh[len(g.flat_id) - m - 1].set_bc((1,(1,500),1))
-    g.mesh[g.M-1].set_bc((3,(1,300),0))
-    g.mesh[0].set_bc((3,(1,300),1))
-    g.mesh[len(g.flat_id)-g.M].set_bc((3,(1,500),3))
-    g.mesh[len(g.flat_id)-1].set_bc((3,(1,500),4))
-    
-    
+    for r in g.wall_iter():
+            
+        if g.mat_id[r][0] == g.M-1 and g.mat_id[r][1] != g.N-1 and g.mat_id[r][1] != 0:
+            g.mesh[r].set_bc((1,(3,20,273.15+50),0))
 
+    for r in g.flat_id:
+        if g.mat_id[r][0] < 25 and g.mat_id[r][0] != 0 and g.mat_id[r][1] != 0 and g.mat_id[r][1] != g.N-1:
+            g.mesh[r].QDOT = 0
+            g.mesh[r].update_bc()
 
     g.evaluate()
     g.show_temp()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
