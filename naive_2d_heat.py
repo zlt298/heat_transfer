@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 """
 A simple implementation of a rectangular grid 2D steady state heat transfer 
 Grid is sized L x H, and the mesh size is m x n
@@ -24,6 +25,8 @@ class Grid(object):
         mesh_size: matrix dimensions for the mesh (m,n)
         k: Coefficient of conduction
         q_dot: Heat generation
+        
+        Default bounds are adiabatic walls
         """
         self.args = (dim_size,mesh_size,k,q_dot)
         self.DIMX,self.DIMY = dim_size
@@ -32,7 +35,7 @@ class Grid(object):
         self.K = k
         self.QDOT = q_dot
         
-        self.mat_id = [(x,y) for y in range(self.N) for x in range(self.M)]
+        self.mat_id = [(x,y) for x in range(self.N) for y in range(self.M)]
         self.flat_id = range(len(self.mat_id))
         self.matToflat = dict(zip(self.mat_id,self.flat_id))
         self.matToflat[(-1,-1)] = -1
@@ -40,9 +43,9 @@ class Grid(object):
     def init_mesh(self):
         self.mesh = [Node(x,y,(0,(0,None),0),*self.args) for x,y in self.mat_id]
         self.temperature = np.zeros((self.M,self.N))
-        for y in range(self.M):
-            for x in range(self.N):
-                pass
+        for r in self.wall_iter():
+            #print r,self.mat_id[r],self.mesh[r].X,self.mesh[r].Y
+            self.mesh[r].set_bc(self.wall_cond(self.mat_id[r],(2,5000)))
         
     def __str__(self):
         s = ''
@@ -51,20 +54,51 @@ class Grid(object):
         return s
 
     def validate_bounds(self):
-        return False
+        return reduce((lambda x,y:x*y),[self.mesh[r].bound[1][0] != 0 for r in self.wall_iter()])
     
     def evaluate(self):
         if self.validate_bounds():
-            return None
+            coeff = np.zeros((self.M*self.N,self.M*self.N))
+            answer = np.zeros((self.M*self.N,1))
+            for r in self.flat_id:
+                temp = np.zeros((1,self.M*self.N))
+                for xy,const in self.mesh[r].coeff[:-1]:
+                    temp[0,self.matToflat[xy]] = const
+                coeff[r,:] = temp
+                answer[r] = self.mesh[r].coeff[-1][1]
+            self.temperature = np.linalg.solve(coeff,answer)
+            self.temperature.shape = (self.M,self.N)
+            
+            return True
         else:
             print "Wall's are not properly bounded"
-            return None
+            return False
 
     def show_temp(self):
-        return None
+        plt.imshow(self.temperature, interpolation='bilinear',cmap=plt.get_cmap("coolwarm"))
+        plt.colorbar()
+        plt.show()
+        
+
+    def wall_cond(self,pos,condition):
+        if   pos == (self.M-1,self.N-1):return (3,condition,0)
+        elif pos == (0,self.N-1)       :return (3,condition,1)
+        elif pos == (0,0)              :return (3,condition,2)
+        elif pos == (self.M-1,0)       :return (3,condition,3)
+        else:
+            if   pos[0] == self.M-1:return (1,condition,0)
+            elif pos[1] == self.N-1:return (1,condition,1)
+            elif pos[0] == 0       :return (1,condition,2)
+            elif pos[1] == 0       :return (1,condition,3)
+            else: return (0,(0,None),0)
+    
+    def wall_iter(self):
+        wall = [self.matToflat[(x,y)] for y in range(self.N) for x in range(self.M) if x == 0 or y == 0 or x == self.M-1 or y == self.N-1]
+        for r in wall:
+            yield r
     
 class Node(Grid):
-    def __init__(self,ypos,xpos,bc,*args):
+    def __init__(self,xpos,ypos,bc,*args):
         """create a node with the following parameters:
         xpos: Position in the X, 0 indexed
         ypos: Position in the Y, 0 indexed
@@ -100,16 +134,17 @@ class Node(Grid):
         house = [(self.X+1,self.Y),(self.X,self.Y+1),(self.X-1,self.Y),(self.X,self.Y-1)]
 
         dx,dy,dxsq,dysq = self.DX,self.DY,pow(self.DX,2),pow(self.DY,2)
-        rotd = [dysq,dxsq,dysq,dxsq]
-        rotdsq = [dy,dx,dy,dx]
+        rotd = [dx,dy,dx,dy]
+        rotdsq =[dysq,dxsq,dysq,dxsq]
 
         conf = self.bound[0]
         rot = self.bound[2]
+        sadleConst = dx*dy*(dx+dy)
         genConst = -self.QDOT*dxsq*dysq/float(self.K)
         posConst = -2*(dxsq+dysq)
         
         #Handle Boundary Conditions, see writeup for derivations
-        #Null Condition
+        #Null Condition=============================================================================
         if self.bound[1][0] == 0:
             self.coeff =     [(house[0],            dysq),
                               (house[1],            dxsq),
@@ -118,57 +153,122 @@ class Node(Grid):
                               (pos,                 posConst),
                               ((-1,-1),             genConst)]
 
-        #Constant Temperature Condition
+        #Constant Temperature Condition=============================================================
         elif self.bound[1][0] == 1:
-            self.coeff =     [(self.pos,1),
+            self.coeff =     [(pos,                 1),
                               ((-1,-1),             self.bound[1][1])]
 
         #Constant Flux Condition
         elif self.bound[1][0] == 2:
             q = self.bound[1][1]
-            #Wall Configuration
+            #Wall Configuration ====================================================================
             if conf == 1:
                 self.coeff = [(house[rot],          0),
                               (house[(rot+1)%4],    rotdsq[(rot+1)%4]),
                               (house[(rot+2)%4],    2*rotdsq[(rot+2)%4]),
                               (house[(rot+3)%4],    rotdsq[(rot+3)%4]),
                               (pos,                 posConst),
-                              ((-1,-1),             genConst-(2*q*rotdsq[rot]/float(self.K)))]
+                              ((-1,-1),             genConst-(2*q*rotdsq[rot]*rotd[rot]/float(self.K)))]
             
-            #Internal Corner Configuration
+            #Internal Corner Configuration==========================================================
             elif conf == 2:
                 self.coeff = [(house[rot],          rotdsq[rot]),
                               (house[(rot+1)%4],    rotdsq[(rot+1)%4]),
                               (house[(rot+2)%4],    2*rotdsq[(rot+2)%4]),
-                              (house[(rot+3)%4],    rotdsq[(rot+3)%4]),
-                              (pos,                 posConst),
-                              ((-1,-1),             genConst-(2*q*rotdsq[rot]/float(self.K)))]
+                              (house[(rot+3)%4],    2*rotdsq[(rot+3)%4]),
+                              (pos,                 1.5*posConst),
+                              ((-1,-1),             1.5*genConst-(q*(sadleConst)/float(self.K)))]
             
-            #External Corner Configuration
+            #External Corner Configuration==========================================================
             elif conf == 3:
-                pass
+                self.coeff = [(house[rot],          0),
+                              (house[(rot+1)%4],    0),
+                              (house[(rot+2)%4],    rotdsq[(rot+2)%4]),
+                              (house[(rot+3)%4],    rotdsq[(rot+3)%4]),
+                              (pos,                 0.5*posConst),
+                              ((-1,-1),             0.5*genConst-(q*(sadleConst)/float(self.K)))]
 
         #Constant Convection Condition
         elif self.bound[1][0] == 3:
             h,Tinf = self.bound[1][1],self.bound[1][2]
-            #Wall Configuration
+            #Wall Configuration=====================================================================
             if conf == 1:
-                pass
+                self.coeff = [(house[rot],          0),
+                              (house[(rot+1)%4],    rotdsq[(rot+1)%4]),
+                              (house[(rot+2)%4],    2*rotdsq[(rot+2)%4]),
+                              (house[(rot+3)%4],    rotdsq[(rot+3)%4]),
+                              (pos,                 posConst-(2*h*rotdsq[rot]*rotd[rot]/float(self.K))),
+                              ((-1,-1),             genConst-(2*h*rotdsq[rot]*rotd[rot]*Tinf/float(self.K)))]
             
-            #Internal Corner Configuration
+            #Internal Corner Configuration==========================================================
             elif conf == 2:
-                pass
+                self.coeff = [(house[rot],          rotdsq[rot]),
+                              (house[(rot+1)%4],    rotdsq[(rot+1)%4]),
+                              (house[(rot+2)%4],    2*rotdsq[(rot+2)%4]),
+                              (house[(rot+3)%4],    2*rotdsq[(rot+3)%4]),
+                              (pos,                 1.5*posConst-h*sadleConst/float(self.K)),
+                              ((-1,-1),             1.5*genConst-(h*Tinf*(sadleConst)/float(self.K)))]
             
-            #External Corner Configuration
+            #External Corner Configuration==========================================================
             elif conf == 3:
-                pass
-
+                self.coeff = [(house[rot],          0),
+                              (house[(rot+1)%4],    0),
+                              (house[(rot+2)%4],    rotdsq[(rot+2)%4]),
+                              (house[(rot+3)%4],    rotdsq[(rot+3)%4]),
+                              (pos,                 0.5*posConst-h*sadleConst/float(self.K)),
+                              ((-1,-1),             0.5*genConst-(h*Tinf*(sadleConst)/float(self.K)))]
+        self.coeff = [c for c in self.coeff if (c[0]==(-1,-1)) or (c[0][0] != -1 and c[0][0] != self.M and c[0][1] != -1 and c[0][1] != self.N)]
+        
     def set_bc(self,bound):
         self.bound = bound
         self.update_bc()
         
 if __name__ == '__main__':
-    g = Grid((100,100),(25,25),20,1)
+    g = Grid((1,1),(50,50),5,100)
     g.init_mesh()
-    for m in range(1000):
-        pass
+    
+    
+    
+    for m in range(g.M):
+        g.mesh[m].set_bc((1,(1,300),1))
+        g.mesh[len(g.flat_id) - m - 1].set_bc((1,(1,500),1))
+    g.mesh[g.M-1].set_bc((3,(1,300),0))
+    g.mesh[0].set_bc((3,(1,300),1))
+    g.mesh[len(g.flat_id)-g.M].set_bc((3,(1,500),3))
+    g.mesh[len(g.flat_id)-1].set_bc((3,(1,500),4))
+    
+    
+
+
+    g.evaluate()
+    g.show_temp()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
