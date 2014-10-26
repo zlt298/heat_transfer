@@ -241,17 +241,44 @@ if __name__ == '__main__':
 ##    g.evaluate()
 ##    g.show_temp()
 
-    g = Grid((0.2,0.001),(50,50),4,1000)
+##    #Simple wall with heat gen
+##    g = Grid((0.2,0.001),(50,50),4,1000)
+##    g.init_mesh()
+##    
+##    for r in g.wall_iter():
+##            
+##        if g.mat_id[r][0] == g.M-1 and g.mat_id[r][1] != g.N-1 and g.mat_id[r][1] != 0:
+##            g.mesh[r].set_bc((1,(3,20,273.15+50),0))
+##
+##    for r in g.flat_id:
+##        if g.mat_id[r][0] < 25 and g.mat_id[r][0] != 0 and g.mat_id[r][1] != 0 and g.mat_id[r][1] != g.N-1:
+##            g.mesh[r].QDOT = 0
+##            g.mesh[r].update_bc()
+##
+##    g.evaluate()
+##    g.show_temp()
+
+    g = Grid((1,0.01),(51,51),16,900)
     g.init_mesh()
-    
+
     for r in g.wall_iter():
-            
-        if g.mat_id[r][0] == g.M-1 and g.mat_id[r][1] != g.N-1 and g.mat_id[r][1] != 0:
-            g.mesh[r].set_bc((1,(3,20,273.15+50),0))
+        if g.mat_id[r][0] == g.M-1:
+            g.mesh[r].set_bc(g.wall_cond(g.mat_id[r],(1,307.8540)))#(3,20,296)))
+    
+##    for r in g.wall_iter():
+##        if g.mat_id[r][0] == g.M-1 and g.mat_id[r][1] != g.N-1 and g.mat_id[r][1] != 0:
+##            self.mesh[r].set_bc(self.wall_cond(self.mat_id[r],(2,0)))
+##            g.mesh[r].set_bc((1,(3,20,293),0))
 
     for r in g.flat_id:
-        if g.mat_id[r][0] < 25 and g.mat_id[r][0] != 0 and g.mat_id[r][1] != 0 and g.mat_id[r][1] != g.N-1:
+        if g.mat_id[r][0] < 26:
             g.mesh[r].QDOT = 0
+            g.mesh[r].K = 40
+            g.mesh[r].update_bc()
+    for r in g.flat_id:
+        if g.mat_id[r][0] > 39:
+            g.mesh[r].QDOT = 0
+            g.mesh[r].K = 40
             g.mesh[r].update_bc()
 
     g.evaluate()
